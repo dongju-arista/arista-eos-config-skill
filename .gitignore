@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.omc/
+skill/**/.omc/
+
+# Local/manual KB artifacts: keep out of Git.
+knowledge/*.sqlite
+knowledge/*.sqlite-*
+knowledge/*.db
+knowledge/*.db-*
+knowledge/*.zst
+knowledge/*.gz
+knowledge/.fetch_kb*/
+!knowledge/.gitkeep

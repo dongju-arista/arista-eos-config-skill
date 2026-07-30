@@ -1,0 +1,4 @@
+interface:
+  display_name: "EOS Config Assistant"
+  short_description: "EOS config and version support guidance"
+  default_prompt: "Use $eos-config-assistant to turn an EOS lab topology and requirement into manual-grounded config, validation, and version-support guidance."
