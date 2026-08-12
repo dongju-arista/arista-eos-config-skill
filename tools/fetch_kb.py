@@ -27,10 +27,10 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 DEFAULT_GITLAB_HOST = "https://gitlab.aristanetworks.com"
 DEFAULT_PROJECT = "dongju/eos-config-assistant-skill"
 DEFAULT_PACKAGE = "eos-manual-kb"
-DEFAULT_PACKAGE_VERSION = "2026.7.2"
+DEFAULT_PACKAGE_VERSION = "2026.8.12"
 
 DEFAULT_GITHUB_REPO = "dongju-arista/arista-eos-config-skill"
-DEFAULT_GITHUB_TAG = "v0.1.0"
+DEFAULT_GITHUB_TAG = "v0.2.0"
 SQLITE_HEADER = b"SQLite format 3\x00"
 PROGRESS_STEP_BYTES = 64 * 1024 * 1024
 
@@ -49,15 +49,15 @@ ARCHIVES: dict[str, ArchiveSpec] = {
         variant="lite",
         archive_name="eos_manual.lite.sqlite.zst",
         sqlite_name="eos_manual.lite.sqlite",
-        sha256="f6405fec8fca344232d35bdf245acfb3833965668769e7cc6b24d61a425d383e",
-        size_bytes=7_868_025,
+        sha256="b4bd331d7f478cb090829140d0e23d55e971e0b63b55d7bfea5be4f68ff6fd9e",
+        size_bytes=10_709_871,
     ),
     "slim": ArchiveSpec(
         variant="slim",
         archive_name="eos_manual.slim.sqlite.zst",
         sqlite_name="eos_manual.slim.sqlite",
-        sha256="37e26ae37e05651e615e6e456b1bd3515f40a793de38deee0b3e995de1252fd6",
-        size_bytes=184_035_646,
+        sha256="d6de93b0b2dffb4414a48e46ee151bac03eb2efcf3919fc56b16c25a8c000e68",
+        size_bytes=231_520_663,
     ),
 }
 ALL_VARIANTS = ["lite", "slim"]

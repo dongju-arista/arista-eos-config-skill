@@ -84,7 +84,7 @@ Download the packaged `slim` and `lite` manual DB archives from GitHub Releases 
 python3 tools/fetch_kb.py
 ```
 
-The helper downloads from the GitHub release by default. No authentication is required for public repositories. Run `python3 tools/fetch_kb.py --help` for override options.
+The helper downloads from the GitHub release `v0.2.0` by default. No authentication is required for public repositories. Run `python3 tools/fetch_kb.py --help` for override options.
 
 The helper requires the `zstd` CLI. On macOS Python installs with an incomplete CA store, it automatically falls back to `curl` for the download.
 
@@ -98,7 +98,7 @@ python3 tools/fetch_kb.py --source gitlab
 
 If `tools/fetch_kb.py` still cannot download the package, download the DB archives from the GitHub release page instead:
 
-1. Open <https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.1.0>.
+1. Open <https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.2.0>.
 2. Download one or both archive files:
    - `eos_manual.slim.sqlite.zst` — recommended default guidance DB
    - `eos_manual.lite.sqlite.zst` — fast command/version support DB
