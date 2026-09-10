@@ -107,6 +107,10 @@ def passthrough_requests_json(passthrough: list[str]) -> bool:
     return "--json" in passthrough
 
 
+def passthrough_requests_earliest_support(passthrough: list[str]) -> bool:
+    return "--earliest-support" in passthrough or "--when-added" in passthrough
+
+
 def passthrough_with_json(passthrough: list[str]) -> list[str]:
     return passthrough if passthrough_requests_json(passthrough) else [*passthrough, "--json"]
 
@@ -241,7 +245,10 @@ def run_auto_or_fast(
     if returncode != 0 or slim_result is None:
         return forward_raw(returncode, stdout, stderr)
 
-    fallback_reason = auto_full_escalation_reason(slim_result)
+    if passthrough_requests_earliest_support(passthrough):
+        fallback_reason = "earliest-support scan requires the full F-release manual corpus when full DB is available"
+    else:
+        fallback_reason = auto_full_escalation_reason(slim_result)
     if not fallback_reason:
         annotated = annotate_selection(slim_result, selection=selection, selected=selected, attempted=[selected])
         return emit_result(annotated, as_json=as_json)

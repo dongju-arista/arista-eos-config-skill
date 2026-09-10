@@ -23,6 +23,11 @@ except ImportError as exc:  # pragma: no cover - environment guard
 ROOT = Path(__file__).resolve().parents[1]
 BODY_ALLOWED_PERMISSION_STATUSES = {"permitted", "user-provided", "synthetic"}
 SQLITE_DEFAULT_LIMIT = 8
+F_ONLY_MANUAL_CORPUS_NOTE = (
+    "EOS User Manual corpus contains F-release manuals only. "
+    "F releases are feature releases; M releases are maintenance releases and do not have separate manuals here."
+)
+EOS_VERSION_RE = re.compile(r"^\s*(?:EOS[-_ ]*)?(\d+)\.(\d+)(?:\.(\d+))?([A-Za-z]*)\s*$")
 
 
 
@@ -168,31 +173,159 @@ def split_versions(values: list[str]) -> list[str]:
     return unique
 
 
+def parse_eos_version(version: str) -> dict[str, Any] | None:
+    match = EOS_VERSION_RE.fullmatch(str(version).strip())
+    if not match:
+        return None
+    major, minor, patch, suffix = match.groups()
+    return {
+        "major": int(major),
+        "minor": int(minor),
+        "patch": int(patch) if patch is not None else None,
+        "suffix": suffix.upper() if suffix else "",
+    }
+
+
+def natural_version_key(version: str) -> tuple[int, int, int, str]:
+    parsed = parse_eos_version(version)
+    if not parsed:
+        return (10**9, 10**9, 10**9, str(version))
+    patch = parsed["patch"] if parsed["patch"] is not None else -1
+    return (parsed["major"], parsed["minor"], patch, parsed["suffix"])
+
+
+def release_train(parsed: dict[str, Any]) -> str:
+    return f"{parsed['major']}.{parsed['minor']}"
+
+
+def is_f_release(version: str) -> bool:
+    parsed = parse_eos_version(version)
+    return bool(parsed and parsed.get("suffix") == "F")
+
+
+def sqlite_manual_versions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = sqlite_rows(
+        conn,
+        "SELECT eos_version, document_version, first_source_id FROM manual_versions",
+    )
+    rows.sort(key=lambda row: natural_version_key(row["eos_version"]))
+    return rows
+
+
+def latest_same_train_f_manual(conn: sqlite3.Connection, parsed: dict[str, Any]) -> dict[str, Any] | None:
+    candidates = []
+    for row in sqlite_manual_versions(conn):
+        row_parsed = parse_eos_version(row["eos_version"])
+        if not row_parsed:
+            continue
+        if row_parsed["major"] != parsed["major"] or row_parsed["minor"] != parsed["minor"]:
+            continue
+        if row_parsed["suffix"] != "F":
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: natural_version_key(row["eos_version"]))
+
+
+def version_resolution_base(version_or_alias: str) -> dict[str, Any]:
+    return {
+        "input": version_or_alias,
+        "requested_eos_version": version_or_alias,
+        "manual_corpus": F_ONLY_MANUAL_CORPUS_NOTE,
+    }
+
+
 def resolve_sqlite_version(conn: sqlite3.Connection, version_or_alias: str) -> dict[str, Any]:
     alias = conn.execute(
         "SELECT alias, eos_version, source_id, notes FROM version_aliases WHERE alias = ?",
         (version_or_alias,),
     ).fetchone()
     if alias:
+        parsed = parse_eos_version(alias["eos_version"])
+        scope = "exact F manual" if parsed and parsed.get("suffix") == "F" else "alias-resolved manual version"
         return {
-            "input": version_or_alias,
+            **version_resolution_base(version_or_alias),
             "resolved_eos_version": alias["eos_version"],
+            "manual_evidence_version": alias["eos_version"],
             "alias": alias["alias"],
             "source_id": alias["source_id"],
             "notes": alias["notes"],
+            "resolution_status": "alias",
+            "resolution_reason": "version alias resolved to a manual version recorded in the SQLite DB",
+            "evidence_scope": scope,
+            **({"release_train": release_train(parsed)} if parsed else {}),
         }
     version = conn.execute(
         "SELECT eos_version, document_version, first_source_id FROM manual_versions WHERE eos_version = ?",
         (version_or_alias,),
     ).fetchone()
     if version:
+        parsed = parse_eos_version(version["eos_version"])
+        status = "exact_f_manual" if parsed and parsed.get("suffix") == "F" else "exact_manual"
+        scope = "exact F manual" if status == "exact_f_manual" else "exact manual version"
         return {
-            "input": version_or_alias,
+            **version_resolution_base(version_or_alias),
             "resolved_eos_version": version["eos_version"],
+            "manual_evidence_version": version["eos_version"],
             "document_version": version["document_version"],
             "source_id": version["first_source_id"],
+            "resolution_status": status,
+            "resolution_reason": "exact manual version exists in the SQLite DB",
+            "evidence_scope": scope,
+            **({"release_train": release_train(parsed), "requested_suffix": parsed.get("suffix")} if parsed else {}),
         }
-    return {"input": version_or_alias, "resolved_eos_version": version_or_alias, "missing_in_db": True}
+
+    parsed = parse_eos_version(version_or_alias)
+    if parsed:
+        fallback = latest_same_train_f_manual(conn, parsed)
+        if fallback:
+            suffix = parsed.get("suffix") or ""
+            if suffix == "M":
+                status = "same_train_latest_f_proxy_for_m_release"
+                reason = (
+                    "requested version is an M maintenance release; using the latest available F manual "
+                    "in the same major.minor train as the primary manual evidence"
+                )
+                scope = "same-train latest F manual proxy for requested M maintenance release"
+            elif suffix == "F":
+                status = "same_train_latest_f_fallback"
+                reason = (
+                    "requested F patch manual is not present; using the latest available F manual "
+                    "in the same major.minor train"
+                )
+                scope = "same-train latest F manual fallback; exact requested F patch manual missing"
+            elif parsed.get("patch") is None:
+                status = "minor_train_latest_f_fallback"
+                reason = "minor-train shorthand was requested; using the latest available F manual in that train"
+                scope = "minor-train latest F manual fallback"
+            else:
+                status = "same_train_latest_f_fallback"
+                reason = "requested version is not present; using the latest available F manual in the same major.minor train"
+                scope = "same-train latest F manual fallback"
+            return {
+                **version_resolution_base(version_or_alias),
+                "resolved_eos_version": fallback["eos_version"],
+                "manual_evidence_version": fallback["eos_version"],
+                "document_version": fallback.get("document_version"),
+                "source_id": fallback.get("first_source_id"),
+                "missing_in_db": True,
+                "resolution_status": status,
+                "resolution_reason": reason,
+                "evidence_scope": scope,
+                "release_train": release_train(parsed),
+                "requested_suffix": suffix,
+            }
+
+    return {
+        **version_resolution_base(version_or_alias),
+        "resolved_eos_version": None,
+        "manual_evidence_version": None,
+        "missing_in_db": True,
+        "resolution_status": "unresolved",
+        "resolution_reason": "no exact manual version, alias, or same-train F manual exists in the SQLite DB",
+        "evidence_scope": "unversioned corpus search only; no version-specific support claim",
+    }
 
 
 def fts5_query(value: str) -> str:
@@ -368,11 +501,27 @@ def sqlite_chunk_query(conn: sqlite3.Connection, args: argparse.Namespace, resol
     return rendered
 
 
-def sqlite_compare(conn: sqlite3.Connection, version: str | None, compare_version: str | None, limit: int) -> dict[str, Any] | None:
-    if not version or not compare_version:
+def sqlite_compare(
+    conn: sqlite3.Connection,
+    version_resolution: dict[str, Any] | None,
+    compare_version_resolution: dict[str, Any] | None,
+    limit: int,
+) -> dict[str, Any] | None:
+    if not version_resolution or not compare_version_resolution:
         return None
-    left = resolve_sqlite_version(conn, version)["resolved_eos_version"]
-    right = resolve_sqlite_version(conn, compare_version)["resolved_eos_version"]
+    left = version_resolution.get("resolved_eos_version")
+    right = compare_version_resolution.get("resolved_eos_version")
+    if not left or not right:
+        return {
+            "from": left,
+            "to": right,
+            "from_resolution": version_resolution,
+            "to_resolution": compare_version_resolution,
+            "records": [],
+            "manual_corpus": F_ONLY_MANUAL_CORPUS_NOTE,
+            "evidence_scope": "comparison skipped because at least one requested version has no resolvable F manual evidence version",
+            "notes": "Absence of comparison records is not support/removal evidence.",
+        }
     rows = sqlite_rows(
         conn,
         """
@@ -390,7 +539,11 @@ def sqlite_compare(conn: sqlite3.Connection, version: str | None, compare_versio
     return {
         "from": left,
         "to": right,
+        "from_resolution": version_resolution,
+        "to_resolution": compare_version_resolution,
         "records": rows,
+        "manual_corpus": F_ONLY_MANUAL_CORPUS_NOTE,
+        "evidence_scope": "comparison uses resolved F manual evidence versions, including same-train F proxies when requested",
         "notes": "One-sided command-documentation records are diff_status=unknown; absence is not treated as unsupported or removed.",
     }
 
@@ -402,6 +555,7 @@ def sqlite_command_support(
     limit: int,
     *,
     fallback_command_ids: list[str] | None = None,
+    query_supplied: bool = False,
 ) -> list[dict[str, Any]]:
     command_ids: list[str] = []
     if chunk_ids:
@@ -412,6 +566,8 @@ def sqlite_command_support(
         ]
     elif fallback_command_ids:
         command_ids = fallback_command_ids
+    if query_supplied and not command_ids:
+        return []
     filters: list[str] = []
     params: list[Any] = []
     if command_ids:
@@ -433,6 +589,159 @@ def sqlite_command_support(
         """,
         (*params, limit),
     )
+
+
+def unique_values(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        unique.append(value)
+    return unique
+
+
+def sqlite_manual_presence_by_version(conn: sqlite3.Connection, query: str, limit: int) -> list[dict[str, Any]]:
+    expression = fts5_query(query)
+    if not expression:
+        return []
+    grouped = sqlite_rows(
+        conn,
+        """
+        SELECT c.eos_version, COUNT(*) AS matching_chunks, MIN(c.page_start) AS first_page
+        FROM chunks_fts
+        JOIN chunks c ON c.id = chunks_fts.chunk_id
+        WHERE chunks_fts MATCH ?
+        GROUP BY c.eos_version
+        """,
+        (expression,),
+    )
+    grouped = [row for row in grouped if is_f_release(row["eos_version"])]
+    grouped.sort(key=lambda row: natural_version_key(row["eos_version"]))
+    rendered: list[dict[str, Any]] = []
+    for row in grouped[: max(limit, SQLITE_DEFAULT_LIMIT)]:
+        samples = sqlite_rows(
+            conn,
+            """
+            SELECT c.id AS chunk_id, c.source_id, c.eos_version, c.title, c.page_start, c.page_end,
+                   c.stable_section_id, bm25(chunks_fts) AS rank
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.chunk_id
+            WHERE chunks_fts MATCH ? AND c.eos_version = ?
+            ORDER BY rank, c.page_start, c.chunk_index
+            LIMIT 3
+            """,
+            (expression, row["eos_version"]),
+        )
+        rendered.append(
+            {
+                "eos_version": row["eos_version"],
+                "matching_chunks": row["matching_chunks"],
+                "first_page": row["first_page"],
+                "sample_chunks": samples,
+            }
+        )
+    return rendered
+
+
+def sqlite_body_coverage(conn: sqlite3.Connection) -> dict[str, Any]:
+    manual_versions = [row["eos_version"] for row in sqlite_manual_versions(conn)]
+    body_versions = [
+        row["eos_version"]
+        for row in sqlite_rows(
+            conn,
+            "SELECT DISTINCT eos_version FROM chunks ORDER BY eos_version",
+        )
+    ]
+    manual_f_versions = [version for version in manual_versions if is_f_release(version)]
+    body_f_versions = [version for version in body_versions if is_f_release(version)]
+    body_f_versions.sort(key=natural_version_key)
+    manual_f_versions.sort(key=natural_version_key)
+    return {
+        "manual_f_version_count": len(manual_f_versions),
+        "body_f_version_count": len(body_f_versions),
+        "all_f_versions_have_body": len(body_f_versions) == len(manual_f_versions),
+    }
+
+
+def sqlite_earliest_support(conn: sqlite3.Connection, args: argparse.Namespace) -> dict[str, Any] | None:
+    if not getattr(args, "earliest_support", False):
+        return None
+    limit = args.limit or SQLITE_DEFAULT_LIMIT
+    result: dict[str, Any] = {
+        "query": args.query,
+        "manual_corpus": F_ONLY_MANUAL_CORPUS_NOTE,
+        "scope": "scan all available F-release manual evidence in the selected DB; do not apply a single requested-version filter",
+        "version_filter_applied": False,
+        "body_coverage": sqlite_body_coverage(conn),
+        "command_records": [],
+        "manual_presence": [],
+        "notes": [],
+    }
+    if not args.query:
+        result["notes"].append("--earliest-support requires --query; no scan was performed.")
+        return result
+
+    manual_presence = sqlite_manual_presence_by_version(conn, args.query, limit)
+    result["manual_presence"] = manual_presence
+    if manual_presence:
+        result["earliest_manual_presence_version"] = manual_presence[0]["eos_version"]
+
+    command_ids = unique_values(sqlite_command_ids_for_query(conn, args.query, limit))
+    if command_ids:
+        placeholders = ",".join("?" for _ in command_ids)
+        rows = sqlite_rows(
+            conn,
+            f"""
+            SELECT cs.command_id, c.command_text, cs.eos_version, cs.source_id, cs.support_status,
+                   cs.evidence_chunk_id, cs.confidence, cs.notes
+            FROM command_support cs
+            JOIN commands c ON c.id = cs.command_id
+            WHERE cs.command_id IN ({placeholders}) AND cs.support_status = 'supported'
+            ORDER BY c.command_text, cs.eos_version, cs.source_id
+            """,
+            tuple(command_ids),
+        )
+        by_command: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            if not is_f_release(row["eos_version"]):
+                continue
+            by_command.setdefault(row["command_id"], []).append(row)
+        for command_id, command_rows in by_command.items():
+            command_rows.sort(key=lambda row: natural_version_key(row["eos_version"]))
+            versions = unique_values([row["eos_version"] for row in command_rows])
+            versions_sample = versions if len(versions) <= 10 else versions[:5] + ["..."] + versions[-5:]
+            earliest = command_rows[0]
+            latest = max(command_rows, key=lambda row: natural_version_key(row["eos_version"]))
+            result["command_records"].append(
+                {
+                    "command_id": command_id,
+                    "command_text": earliest["command_text"],
+                    "earliest_eos_version": earliest["eos_version"],
+                    "latest_eos_version": latest["eos_version"],
+                    "support_status": earliest["support_status"],
+                    "earliest_source_id": earliest["source_id"],
+                    "earliest_evidence_chunk_id": earliest["evidence_chunk_id"],
+                    "confidence": earliest["confidence"],
+                    "supported_f_version_count": len(versions),
+                    "supported_f_versions_sample": versions_sample,
+                    "evidence_scope": "earliest command_support row across F-release manuals in this DB",
+                }
+            )
+        result["command_records"].sort(key=lambda row: (natural_version_key(row["earliest_eos_version"]), row["command_text"]))
+    else:
+        result["notes"].append(
+            "No direct precomputed command table match for the query; use manual_presence as weaker text-occurrence evidence only."
+        )
+
+    if result["body_coverage"]["manual_f_version_count"] and not result["body_coverage"]["all_f_versions_have_body"]:
+        result["notes"].append(
+            "Selected DB does not retain prose chunks for every F manual version; use the full DB for prose-level earliest-introduction analysis."
+        )
+    if not result["command_records"] and not result["manual_presence"]:
+        result["notes"].append("No F-manual evidence matched. Do not infer that the feature is unsupported.")
+    return result
 
 
 def sqlite_sources_for_context(
@@ -470,6 +779,45 @@ def sqlite_sources_for_context(
     )
 
 
+def sqlite_evidence_scope(requested_versions: list[str], resolved: list[dict[str, Any]]) -> dict[str, Any]:
+    manual_evidence_versions = [
+        item["resolved_eos_version"]
+        for item in resolved
+        if item.get("resolved_eos_version")
+    ]
+    scope: dict[str, Any] = {
+        "manual_corpus": F_ONLY_MANUAL_CORPUS_NOTE,
+        "requested_versions": requested_versions,
+        "manual_evidence_versions": manual_evidence_versions,
+        "default_version_assumed": False,
+    }
+    if not requested_versions:
+        scope.update(
+            {
+                "version_filter": None,
+                "version_filter_reason": "no EOS version supplied; retrieval intentionally does not force a default/latest version",
+            }
+        )
+        return scope
+    if manual_evidence_versions:
+        scope.update(
+            {
+                "version_filter": manual_evidence_versions,
+                "version_filter_reason": "using resolved manual evidence versions from inputs.resolved_versions",
+                "resolution_statuses": [item.get("resolution_status") for item in resolved],
+            }
+        )
+        return scope
+    scope.update(
+        {
+            "version_filter": None,
+            "version_filter_reason": "requested version(s) could not be resolved to exact or same-train F manual evidence; retrieval is unversioned and cannot prove version support",
+            "resolution_statuses": [item.get("resolution_status") for item in resolved],
+        }
+    )
+    return scope
+
+
 def build_sqlite_result(args: argparse.Namespace) -> dict[str, Any]:
     db_path = (ROOT / args.db if not args.db.is_absolute() else args.db).resolve()
     conn = open_sqlite_readonly(db_path)
@@ -479,10 +827,11 @@ def build_sqlite_result(args: argparse.Namespace) -> dict[str, Any]:
         resolved_versions = [item["resolved_eos_version"] for item in resolved if item.get("resolved_eos_version")]
         chunks = sqlite_chunk_query(conn, args, resolved_versions)
         fallback_command_ids = sqlite_command_ids_for_query(conn, args.query, args.limit or SQLITE_DEFAULT_LIMIT) if args.query and not chunks else []
+        compare_version_resolution = resolve_sqlite_version(conn, args.compare_version) if args.compare_version else None
         compare = sqlite_compare(
             conn,
-            requested_versions[0] if requested_versions else None,
-            args.compare_version,
+            resolved[0] if resolved else None,
+            compare_version_resolution,
             args.limit or SQLITE_DEFAULT_LIMIT,
         )
         command_support = sqlite_command_support(
@@ -491,10 +840,18 @@ def build_sqlite_result(args: argparse.Namespace) -> dict[str, Any]:
             resolved_versions,
             args.limit or SQLITE_DEFAULT_LIMIT,
             fallback_command_ids=fallback_command_ids,
+            query_supplied=bool(args.query),
         )
         version_context = list(resolved_versions)
         if compare:
-            version_context.extend([compare["from"], compare["to"]])
+            version_context.extend(version for version in [compare.get("from"), compare.get("to")] if version)
+        earliest_support = sqlite_earliest_support(conn, args)
+        if earliest_support:
+            for record in earliest_support.get("command_records") or []:
+                if record.get("earliest_eos_version"):
+                    version_context.append(record["earliest_eos_version"])
+            if earliest_support.get("earliest_manual_presence_version"):
+                version_context.append(earliest_support["earliest_manual_presence_version"])
         sources = sqlite_sources_for_context(
             conn,
             explicit_source_id=args.source_id,
@@ -515,16 +872,44 @@ def build_sqlite_result(args: argparse.Namespace) -> dict[str, Any]:
                 "query": args.query,
                 "versions": requested_versions,
                 "resolved_versions": resolved,
+                "resolved_compare_version": compare_version_resolution,
                 "source_id": args.source_id,
                 "compare_version": args.compare_version,
                 "limit": args.limit or SQLITE_DEFAULT_LIMIT,
             },
+            "evidence_scope": sqlite_evidence_scope(requested_versions, resolved),
             "sources": sources,
             "chunks": chunks,
             "command_support": command_support,
             "version_comparison": compare,
+            "earliest_support": earliest_support,
             "answering_notes": [],
         }
+        if not requested_versions:
+            result["answering_notes"].append(
+                "No EOS version was provided; retrieval ran without a version filter. Do not invent or force a default EOS version."
+            )
+        for item in resolved:
+            if item.get("resolution_status") in {
+                "same_train_latest_f_proxy_for_m_release",
+                "same_train_latest_f_fallback",
+                "minor_train_latest_f_fallback",
+                "unresolved",
+            }:
+                result["answering_notes"].append(
+                    f"Version input {item['input']!r}: {item.get('resolution_reason')} "
+                    f"(evidence_scope={item.get('evidence_scope')})."
+                )
+        if compare_version_resolution and compare_version_resolution.get("resolution_status") != "exact_f_manual":
+            result["answering_notes"].append(
+                f"Compare-version input {compare_version_resolution['input']!r}: "
+                f"{compare_version_resolution.get('resolution_reason')} "
+                f"(evidence_scope={compare_version_resolution.get('evidence_scope')})."
+            )
+        if earliest_support:
+            result["answering_notes"].append(
+                "Earliest-support scan ignores single-version filtering and scans F-release manual evidence in the selected DB."
+            )
         if any(not chunk.get("body_available") for chunk in chunks):
             result["answering_notes"].append("Some chunks are metadata-only or body-gated; do not infer missing prose.")
         if fallback_command_ids and command_support:
@@ -717,18 +1102,27 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--query", help="SQLite FTS query string; never opens the PDF")
     parser.add_argument("--source-id", help="SQLite source_id filter")
     parser.add_argument("--compare-version", help="SQLite version/alias to compare with the first --version/--versions value")
+    parser.add_argument(
+        "--earliest-support",
+        "--when-added",
+        dest="earliest_support",
+        action="store_true",
+        help="Scan all F-release manual evidence for earliest matching command/text evidence; do not apply a single version filter to this scan.",
+    )
     parser.add_argument("--limit", type=int, default=SQLITE_DEFAULT_LIMIT, help="SQLite result limit")
     parser.add_argument("--json", action="store_true", help="Emit JSON instead of YAML")
     args = parser.parse_args(argv)
     if args.db:
         if args.limit <= 0:
             parser.error("--limit must be positive")
+        if args.earliest_support and not args.query:
+            parser.error("--earliest-support/--when-added require --query")
         if not any([args.query, args.versions, args.versions_csv, args.source_id, args.compare_version]):
             parser.print_help(sys.stderr)
             raise SystemExit(2)
         return args
-    if any([args.query, args.source_id, args.compare_version, args.versions_csv]):
-        parser.error("--query/--source-id/--compare-version/--versions require --db")
+    if any([args.query, args.source_id, args.compare_version, args.versions_csv, args.earliest_support]):
+        parser.error("--query/--source-id/--compare-version/--versions/--earliest-support require --db")
     if not any([args.features, args.commands, args.situations, args.versions, args.diffs]):
         parser.print_help(sys.stderr)
         raise SystemExit(2)

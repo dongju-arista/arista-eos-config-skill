@@ -49,11 +49,22 @@ Recommended query pattern:
 4. Use `--version` when the lab version is known.
 5. Use `--compare-version` only when the user asks about version differences.
 
+Version/manual rules:
+
+- The SQLite manual corpus contains EOS User Manuals for F releases only.
+- Treat F releases as feature releases and M releases as maintenance releases.
+- If a requested M release is not in the DB, resolve it to the latest available same major.minor F manual. Example: `4.34.5M` should use the highest `4.34.xF` manual present in the DB as the primary manual source.
+- Do not present same-train F fallback as exact M-release evidence. Say "manual evidence: 4.34.xF proxy for requested 4.34.5M" or equivalent.
+- If no user/lab version is supplied, omit `--version`; do not silently use the newest DB version.
+- If an exact F patch has no retained prose in `slim`, let `--variant auto` rerun `full` when available before writing prose-heavy guidance.
+- For "when was this added/introduced?" questions, use `--earliest-support`/`--when-added` and scan all F-release evidence. Do not constrain that scan to a single requested version.
+- If command_support or full-text lookup has no match, answer `unknown` rather than `unsupported` unless explicit removed/deprecated/changed evidence exists.
+
 ## 3. Synthesis rules
 
 - Tie each proposed config block to the lab device and interface names, not image-only names.
 - Preserve original image labels only as comments/reference mapping.
-- State source coverage: which features were found in the manual DB and which remain assumptions.
+- State source coverage: which features were found in the manual DB, which DB variant was used, and whether the evidence was exact-version, same-train F proxy, unversioned, metadata-only, or unknown.
 - Keep candidate configs reversible and local-file oriented unless the user explicitly requests device automation.
 - Prefer minimal config that satisfies the stated test objective.
 

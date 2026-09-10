@@ -55,6 +55,12 @@ If direct repo access is easier, use:
 python3 tools/query_knowledge_base.py --db knowledge/eos_manual.sqlite --query "show bgp evpn" --version 4.36.0F --limit 5 --json
 ```
 
+For "when was this added/introduced?" questions, scan the F-release corpus instead of filtering to one version:
+
+```bash
+python3 <skill>/scripts/query_manual.py --variant auto --query "egress permit acl logging" --earliest-support --limit 5 --json
+```
+
 ## Output boundaries
 
 Default allowed outputs:
@@ -74,4 +80,18 @@ Require explicit user authorization before:
 
 ## Version handling
 
-Use the lab's EOS version when provided. If not provided, use the user's stated version. If neither exists, query without a version filter and report the version gap. Never treat missing command evidence as unsupported; report it as `unknown` unless the knowledge base has explicit removed/deprecated/changed evidence.
+Use the lab's EOS version when provided. If not provided, use the user's stated version. If neither exists, query without a version filter and report the version gap. Do not invent or force a latest/default version.
+
+Manual corpus rule:
+
+- EOS User Manuals in this KB are F-release manuals only.
+- Treat F releases as feature releases and M releases as maintenance releases.
+- If the user asks about an M release such as `4.34.5M`, use the latest available same-train F manual (`4.34.xF`, highest patch in the DB) as the primary manual evidence.
+- State that this is a same-train F-manual proxy, not an exact M-release manual.
+- If an exact F patch is missing, use the latest available same-train F manual and state the fallback scope.
+
+Query result fields `inputs.resolved_versions`, `evidence_scope`, and `answering_notes` are authoritative for how a version was resolved. Surface that scope in the final answer.
+
+For feature-introduction questions, use `--earliest-support`/`--when-added` and scan all F-manual evidence; do not apply a single version filter unless the user specifically asks for support in that version after the introduction check.
+
+Never treat missing command evidence as unsupported; report it as `unknown` unless the knowledge base has explicit removed/deprecated/changed evidence.

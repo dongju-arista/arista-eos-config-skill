@@ -31,6 +31,7 @@ DEFAULT_PACKAGE_VERSION = "2026.8.12"
 
 DEFAULT_GITHUB_REPO = "dongju-arista/arista-eos-config-skill"
 DEFAULT_GITHUB_TAG = "v0.2.0"
+DEFAULT_SOURCE = "github"
 SQLITE_HEADER = b"SQLite format 3\x00"
 PROGRESS_STEP_BYTES = 64 * 1024 * 1024
 
@@ -627,8 +628,8 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--source",
         choices=["github", "gitlab"],
-        default="github",
-        help="Download source. Default: github.",
+        default=DEFAULT_SOURCE,
+        help=f"Download source. Default: {DEFAULT_SOURCE}.",
     )
     parser.add_argument(
         "--variant",

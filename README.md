@@ -20,6 +20,7 @@ requirements.txt              # runtime Python dependencies
 
 - Python 3.10+.
 - `zstd` CLI for decompressing packaged KB archives.
+- Access to clone this repository.
 
 On macOS with Homebrew:
 
@@ -88,17 +89,11 @@ The helper downloads from the GitHub release `v0.2.0` by default. No authenticat
 
 The helper requires the `zstd` CLI. On macOS Python installs with an incomplete CA store, it automatically falls back to `curl` for the download.
 
-To download from the internal GitLab Package Registry instead:
-
-```bash
-python3 tools/fetch_kb.py --source gitlab
-```
-
 ### Manual DB archive download fallback
 
 If `tools/fetch_kb.py` still cannot download the package, download the DB archives from the GitHub release page instead:
 
-1. Open <https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.2.0>.
+1. Open the release page: `https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.2.0`.
 2. Download one or both archive files:
    - `eos_manual.slim.sqlite.zst` — recommended default guidance DB
    - `eos_manual.lite.sqlite.zst` — fast command/version support DB
@@ -130,6 +125,14 @@ Example:
 ln -s /path/to/eos_manual.slim.sqlite knowledge/eos_manual.slim.sqlite
 ln -s /path/to/eos_manual.lite.sqlite knowledge/eos_manual.lite.sqlite
 ```
+
+## EOS manual version behavior
+
+- This KB contains EOS User Manuals for F releases only.
+- F releases are treated as feature releases; M releases are treated as maintenance releases.
+- For an M-release question such as `4.34.5M`, the skill uses the latest available same-train F manual (`4.34.xF`) as the primary manual evidence and labels it as a proxy, not exact M-manual evidence.
+- If no EOS version is provided, the skill queries without a version filter instead of forcing a default/latest version.
+- For "when was this added?" questions, the skill scans all F-manual evidence with `--earliest-support`/`--when-added` instead of filtering to one version.
 
 ## Use from Codex
 
@@ -180,5 +183,4 @@ auto = slim -> full -> lite, with full retry when slim lacks source prose
 fast = lite -> slim -> full
 ```
 
-Use `tools/fetch_kb.py --force` to refresh the local `slim` and `lite` manual DB files from the packaged archives.
-
+Use `tools/fetch_kb.py --force` to refresh the local `slim` and `lite` manual DB files from GitHub release `v0.2.0`.
