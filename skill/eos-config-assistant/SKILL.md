@@ -1,6 +1,6 @@
 ---
 name: eos-config-assistant
-description: Manual-grounded Arista EOS configuration assistance. Use when Codex needs to turn an EOS lab topology, test scenario, feature request, or external lab folder into source-backed EOS configuration guidance, candidate configs, validation commands, version-support checks, or later approval-gated automation plans using this repository's EOS manual SQLite knowledge base variants and tools.
+description: Manual-grounded Arista EOS configuration assistance. Use when Codex needs to turn an EOS lab topology, test scenario, feature request, or external lab folder into source-backed EOS configuration guidance, candidate configs, validation commands, version-support checks, or later approval-gated automation plans using this repository's EOS manual SQLite knowledge base and tools.
 ---
 
 # EOS Config Assistant
@@ -13,7 +13,7 @@ Use this skill to produce EOS configuration guidance from lab artifacts and the 
 
 1. Locate the assistant project root in this order:
    - `EOS_CONFIG_ASSISTANT_HOME` environment variable.
-   - The parent runtime repo that contains `knowledge/` and `tools/query_knowledge_base.py`.
+   - The parent runtime repo that contains `knowledge/`, `tools/query_knowledge_base.py`.
    - The resolved path of this skill when installed as a symlink.
 2. Locate the lab root from the user's path, current working directory, or explicit files such as `topology.yml`, `*.yml`, `ref/topology.md`, `configs/`, or `validation/`.
 3. Do not assume lab files live in this repository. Labs may be in any external repo/folder.
@@ -23,10 +23,10 @@ Use this skill to produce EOS configuration guidance from lab artifacts and the 
 1. Read the lab topology and scenario files first.
 2. Extract device names, platforms, EOS version if present, ASNs, loopbacks, interface mapping, service VLANs/VRFs/VNIs, and required test traffic.
 3. Query the manual DB for every nontrivial feature or command family before proposing config. Prefer full/slim for explanatory guidance; use lite only for fast command/version support checks.
-4. Separate facts from assumptions. If a topology field is missing, make a minimal explicit assumption or mark it as `Needs confirmation`, or use an equivalent label in the user's language.
-5. Produce output using `references/output-contract.md`.
-6. Include verification commands and expected observations before any automation plan.
-7. For any action that would touch live devices, apply `references/safety-policy.md`.
+5. Separate facts from assumptions. If a topology field is missing, make a minimal explicit assumption or mark it as `Needs confirmation`, or use an equivalent label in the user's language.
+6. Produce output using `references/output-contract.md`.
+7. Include verification commands and expected observations before any automation plan.
+8. For any action that would touch live devices, apply `references/safety-policy.md`.
 
 Read `references/workflow.md` for the detailed workflow and retrieval policy. Read `references/output-contract.md` before producing config guidance or candidate configs. Read `references/safety-policy.md` before proposing or executing automation beyond local file generation.
 
@@ -55,7 +55,7 @@ If direct repo access is easier, use:
 python3 tools/query_knowledge_base.py --db knowledge/eos_manual.sqlite --query "show bgp evpn" --version 4.36.0F --limit 5 --json
 ```
 
-For "when was this added/introduced?" questions, scan the F-release corpus instead of filtering to one version:
+Use the manual DB for "when was this added/introduced?" scans across the F-release corpus instead of filtering to one version:
 
 ```bash
 python3 <skill>/scripts/query_manual.py --variant auto --query "egress permit acl logging" --earliest-support --limit 5 --json
@@ -92,6 +92,6 @@ Manual corpus rule:
 
 Query result fields `inputs.resolved_versions`, `evidence_scope`, and `answering_notes` are authoritative for how a version was resolved. Surface that scope in the final answer.
 
-For feature-introduction questions, use `--earliest-support`/`--when-added` and scan all F-manual evidence; do not apply a single version filter unless the user specifically asks for support in that version after the introduction check.
+For feature-introduction questions, use manual `--earliest-support`/`--when-added` and scan all F-manual evidence. Do not apply a single version filter unless the user specifically asks for support in that version after the introduction check.
 
 Never treat missing command evidence as unsupported; report it as `unknown` unless the knowledge base has explicit removed/deprecated/changed evidence.

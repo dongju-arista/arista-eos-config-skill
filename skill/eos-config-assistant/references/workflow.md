@@ -28,10 +28,11 @@ Use precomputed knowledge only:
   - `knowledge/eos_manual.sqlite` — canonical full DB; use for precise source prose and old patch-version detail.
   - `knowledge/eos_manual.slim.sqlite` — distribution DB; use as the normal guidance first choice.
   - `knowledge/eos_manual.lite.sqlite` — command/version support metadata only; use for automation pre-checks and CI-style guardrails.
-- Query helper: `tools/query_knowledge_base.py` or `scripts/query_manual.py`.
+- Query helpers:
+  - Manual: `tools/query_knowledge_base.py` or `scripts/query_manual.py`.
 - Existing docs under `docs/` for schema, ingestion, and retrieval contracts.
 
-Do not do question-time PDF ingestion, scraping, re-chunking, or corpus mutation.
+Do not do question-time PDF/HTML ingestion, scraping, re-chunking, or corpus mutation.
 
 DB selection:
 
@@ -40,6 +41,12 @@ DB selection:
 3. Use `--variant lite` only when metadata-only command/version support is desired.
 4. Use `--variant slim` or `--variant full` for candidate config explanations, feature caveats, examples, and validation guidance.
 5. If a lite/slim lookup returns command support without chunks/body, treat it as version-support evidence only and escalate before writing prose-heavy guidance.
+
+Feature-introduction lookup:
+
+1. For "when was this added/introduced?" questions, use manual `--earliest-support`/`--when-added` and scan all F-release manual evidence.
+2. Do not constrain that scan to a single requested version unless the user specifically asks for support in that version after the introduction check.
+3. If manual evidence is missing, answer `unknown` rather than guessing.
 
 Recommended query pattern:
 
@@ -57,7 +64,7 @@ Version/manual rules:
 - Do not present same-train F fallback as exact M-release evidence. Say "manual evidence: 4.34.xF proxy for requested 4.34.5M" or equivalent.
 - If no user/lab version is supplied, omit `--version`; do not silently use the newest DB version.
 - If an exact F patch has no retained prose in `slim`, let `--variant auto` rerun `full` when available before writing prose-heavy guidance.
-- For "when was this added/introduced?" questions, use `--earliest-support`/`--when-added` and scan all F-release evidence. Do not constrain that scan to a single requested version.
+- For "when was this added/introduced?" questions, use manual `--earliest-support`/`--when-added` and scan all F-release evidence. Do not constrain that scan to a single requested version.
 - If command_support or full-text lookup has no match, answer `unknown` rather than `unsupported` unless explicit removed/deprecated/changed evidence exists.
 
 ## 3. Synthesis rules

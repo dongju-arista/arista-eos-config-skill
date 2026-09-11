@@ -22,7 +22,7 @@ Use this structure for EOS config guidance unless the user asks for a different 
 - For each query, include version scope from the retrieval result: exact F manual, same-train F proxy, unversioned, metadata-only, or unknown.
 - Summarize relevant feature/command evidence.
 - Mark unsupported evidence states as `unknown` unless explicit DB evidence says otherwise.
-- For "when added/introduced" answers, cite the `earliest_support` scan scope and earliest F-manual evidence; do not claim an M-maintenance release added a feature unless independent release-note evidence proves it.
+- For "when added/introduced" answers, use manual `earliest_support` evidence and state corpus gaps explicitly.
 
 ## 4. Candidate configuration
 

@@ -9,12 +9,13 @@ This repository is intended to be cloned or installed as a clean skill runtime. 
 ```text
 skill/eos-config-assistant/   # skill directory to install/symlink into Codex or Claude Code
 tools/query_knowledge_base.py # read-only SQLite/FTS retrieval engine
-tools/fetch_kb.py             # downloads packaged slim/lite KB archives
+
+tools/fetch_kb.py             # downloads packaged slim/lite manual KB archives
 knowledge/                    # local KB artifact directory; DB files are gitignored
 requirements.txt              # runtime Python dependencies
 ```
 
-`skill/eos-config-assistant/SKILL.md` is the shared skill entrypoint for both Codex and Claude Code. `skill/eos-config-assistant/agents/openai.yaml` is Codex-specific UI metadata; Claude Code can ignore it.
+`skill/eos-config-assistant/SKILL.md` is the shared skill entrypoint for both Codex and Claude Code. `skill/eos-config-assistant/agents/openai.yaml` is Codex-specific UI metadata; Claude Code can ignore it. TOI tooling is intentionally not included in the GitHub distribution.
 
 ## Prerequisites
 
@@ -85,7 +86,7 @@ Download the packaged `slim` and `lite` manual DB archives from GitHub Releases 
 python3 tools/fetch_kb.py
 ```
 
-The helper downloads from the GitHub release `v0.2.0` by default. No authentication is required for public repositories. Run `python3 tools/fetch_kb.py --help` for override options.
+The helper downloads from the GitHub release `v0.2.1` by default. No authentication is required for public repositories. Run `python3 tools/fetch_kb.py --help` for override options.
 
 The helper requires the `zstd` CLI. On macOS Python installs with an incomplete CA store, it automatically falls back to `curl` for the download.
 
@@ -93,7 +94,7 @@ The helper requires the `zstd` CLI. On macOS Python installs with an incomplete 
 
 If `tools/fetch_kb.py` still cannot download the package, download the DB archives from the GitHub release page instead:
 
-1. Open the release page: `https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.2.0`.
+1. Open the release page: `https://github.com/dongju-arista/arista-eos-config-skill/releases/tag/v0.2.1`.
 2. Download one or both archive files:
    - `eos_manual.slim.sqlite.zst` — recommended default guidance DB
    - `eos_manual.lite.sqlite.zst` — fast command/version support DB
@@ -125,6 +126,7 @@ Example:
 ln -s /path/to/eos_manual.slim.sqlite knowledge/eos_manual.slim.sqlite
 ln -s /path/to/eos_manual.lite.sqlite knowledge/eos_manual.lite.sqlite
 ```
+
 
 ## EOS manual version behavior
 
@@ -183,4 +185,4 @@ auto = slim -> full -> lite, with full retry when slim lacks source prose
 fast = lite -> slim -> full
 ```
 
-Use `tools/fetch_kb.py --force` to refresh the local `slim` and `lite` manual DB files from GitHub release `v0.2.0`.
+Use `tools/fetch_kb.py --force` to refresh the local `slim` and `lite` manual DB files from GitHub release `v0.2.1`.

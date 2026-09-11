@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Fetch packaged EOS manual KB archives into the skill runtime.
+"""Fetch packaged EOS KB archives into the skill runtime.
 
 The eos-config-assistant skill reads uncompressed SQLite databases from the
-runtime repository's ``knowledge/`` directory.  This helper downloads the
-compressed ``.zst`` bootstrap archives from GitLab Generic Package Registry,
-verifies them, decompresses them, and places the resulting ``.sqlite`` files
-where ``skill/eos-config-assistant/scripts/query_manual.py`` can find them.
+runtime repository's ``knowledge/`` directory. This helper downloads compressed
+``.zst`` bootstrap archives, verifies them, decompresses them, and places the
+resulting ``.sqlite`` files where the skill wrappers can find them.
 """
 
 from __future__ import annotations
@@ -27,10 +26,10 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 DEFAULT_GITLAB_HOST = "https://gitlab.aristanetworks.com"
 DEFAULT_PROJECT = "dongju/eos-config-assistant-skill"
 DEFAULT_PACKAGE = "eos-manual-kb"
-DEFAULT_PACKAGE_VERSION = "2026.8.12"
+DEFAULT_PACKAGE_VERSION = "2026.9.11"
 
 DEFAULT_GITHUB_REPO = "dongju-arista/arista-eos-config-skill"
-DEFAULT_GITHUB_TAG = "v0.2.0"
+DEFAULT_GITHUB_TAG = "v0.2.1"
 DEFAULT_SOURCE = "github"
 SQLITE_HEADER = b"SQLite format 3\x00"
 PROGRESS_STEP_BYTES = 64 * 1024 * 1024
@@ -43,6 +42,7 @@ class ArchiveSpec:
     sqlite_name: str
     sha256: str
     size_bytes: int
+    sources: tuple[str, ...] = ("github", "gitlab")
 
 
 ARCHIVES: dict[str, ArchiveSpec] = {
@@ -50,17 +50,18 @@ ARCHIVES: dict[str, ArchiveSpec] = {
         variant="lite",
         archive_name="eos_manual.lite.sqlite.zst",
         sqlite_name="eos_manual.lite.sqlite",
-        sha256="b4bd331d7f478cb090829140d0e23d55e971e0b63b55d7bfea5be4f68ff6fd9e",
-        size_bytes=10_709_871,
+        sha256="93a00380a348df5d9bfb00bdbefb0a0477d6ba72cd6451222d0e94511f1ea3d2",
+        size_bytes=6_089_102,
     ),
     "slim": ArchiveSpec(
         variant="slim",
         archive_name="eos_manual.slim.sqlite.zst",
         sqlite_name="eos_manual.slim.sqlite",
-        sha256="d6de93b0b2dffb4414a48e46ee151bac03eb2efcf3919fc56b16c25a8c000e68",
-        size_bytes=231_520_663,
+        sha256="99ca8bed041c20836781975e8a4cefd5a05bafd8be5a82040bae01a293ac9d81",
+        size_bytes=154_138_309,
     ),
 }
+DEFAULT_VARIANTS = ["lite", "slim"]
 ALL_VARIANTS = ["lite", "slim"]
 
 
@@ -568,7 +569,7 @@ def decompress_archive(*, zstd_bin: str, archive: Path, output: Path, quiet: boo
 
 def selected_variants(value: str) -> list[str]:
     if value == "all":
-        return ALL_VARIANTS
+        return DEFAULT_VARIANTS
     return [value]
 
 
@@ -620,9 +621,10 @@ def install_variant(
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Download eos-config-assistant slim/lite KB archives and install "
+            "Download eos-config-assistant KB archives and install "
             "the uncompressed SQLite DBs under knowledge/. Supports GitHub "
-            "Releases (default) and GitLab Package Registry."
+            "Releases (default) and GitLab Package Registry. The TOI DB "
+            "variant is distributed through GitLab only."
         )
     )
     parser.add_argument(
@@ -711,6 +713,8 @@ def main(argv: list[str] | None = None) -> int:
     results: list[str] = []
     for variant in selected_variants(args.variant):
         spec = ARCHIVES[variant]
+        if args.source not in spec.sources:
+            raise SystemExit(f"variant {variant!r} is available from {', '.join(spec.sources)} only; requested source={args.source!r}")
         if args.source == "github":
             url = build_github_release_url(
                 repo=args.github_repo,
